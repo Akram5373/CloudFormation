@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECR Repository For the Docker Image
+
+Resources:
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: hello-world-api
+
+  PipelineRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:*"
+                  - "codecommit:*"
+                  - "ecr:*"
+                  - "codebuild:*"
+                Resource: "*"
+
+  SourceBucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+
+  SourceBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref SourceBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action:
+              - "s3:PutObject"
+            Resource:
+              - !Join ['', ['arn:aws:s3:::', !Ref SourceBucket, '/*']]
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: hello-world
+      Description: CodeBuild Project for ECR Pipeline
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: hello-world-api
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+      ServiceRole: !GetAtt PipelineRole.Arn
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+
+          phases:
+            pre_build:
+              commands:
+                - echo "Logging in to Bitbucket..."
+                - pipe: atlassian/bitbucket-authentication:0.1.4
+                  variables:
+                    BITBUCKET_USERNAME: "Akram5373"
+                    BITBUCKET_PASSWORD: "Password@123"
+                - echo "Cloning repository..."
+                - pipe: atlassian/git-clone:0.5.13
+                  variables:
+                    GIT_DEPTH: 1
+                    GIT_SUBMODULES: "recursive"
+                    GIT_REPOSITORY: "git clone https://Akram5373@bitbucket.org/hello-world-app/hello-world-java.git"
+                    GIT_BRANCH: "master"
+                    GIT_CLONE_FLAGS: "--single-branch"
+                - echo "Logging in to Amazon ECR..."
+                - aws ecr get-login-password | docker login --username AWS --password-stdin 354358814412.dkr.ecr.ap-south-1.amazonaws.com/hello-world-app
+            build:
+              commands:
+                - echo "Building Docker image..."
+                - docker build -t hello-world-api .
+                - docker tag hello-world-api 354358814412.dkr.ecr.ap-south-1.amazonaws.com/hello-world-app:latest
+            post_build:
+              commands:
+                - echo "Pushing Docker image to Amazon ECR..."
+                - docker push 354358814412.dkr.ecr.ap-south-1.amazonaws.com/hello-world-app:latest
+
+  Pipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      Name: hello-world-pipeline
+      RoleArn: !GetAtt PipelineRole.Arn
+      Stages:
+        - Name: Source

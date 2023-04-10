@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  # ECS Cluster
+  ECSCluster:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName: "my-ecs-cluster"
+  
+  # Auto Scaling Group
+  EC2AutoScalingGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      AutoScalingGroupName: "my-ecs-auto-scaling-group"
+      VPCZoneIdentifier: "subnet-12345,subnet-67890"
+      LaunchConfigurationName: !Ref "EC2LaunchConfiguration"
+      MinSize: "2"
+      MaxSize: "5"
+      DesiredCapacity: "2"
+  
+  # Launch Configuration
+  EC2LaunchConfiguration:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      LaunchConfigurationName: "my-ecs-launch-configuration"
+      ImageId: "ami-0123456789abcdef"
+      InstanceType: "t2.micro"
+      SecurityGroups:
+        - !Ref "EC2SecurityGroup"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeSize: "20"
+            VolumeType: "gp2"
+  
+  # Security Group
+  EC2SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: "my-ecs-security-group"
+      GroupDescription: "Security group for ECS instances"
+      VpcId: "vpc-12345678"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"
+  
+  # Load Balancer
+  ELBLoadBalancer:
+    Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+    Properties:
+      LoadBalancerName: "my-ecs-load-balancer"
+      Subnets:
+        - "subnet-12345"
+        - "subnet-67890"
+      SecurityGroups:
+        - !Ref "ELBSecurityGroup"
+      Listeners:
+        - LoadBalancerPort: "80"
+          InstancePort: "80"
+          Protocol: "HTTP"
+      HealthCheck:
+        Target: "HTTP:80/"
+        HealthyThreshold: "2"
+        UnhealthyThreshold: "10"
+        Interval: "30"
+        Timeout: "5"
+  
+  # Security Group for Load Balancer
+  ELBSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: "my-elb-security-group"
+      GroupDescription: "Security group for ELB"
+      VpcId: "vpc-12345678"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+  
+  # Target Group
+  TargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      Name: "my-ecs-target-group"
+      Port: "80"
+      Protocol: "HTTP"
+      TargetType: "ip"
+      VpcId: "vpc-12345678"
+  
